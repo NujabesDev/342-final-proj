@@ -1,42 +1,35 @@
 #include <WiFi.h>
 #include <esp_now.h>
 
-// Ryan's Upload - Serial Output Only Version
+// Ryan's Upload - Interactive Message Version
 uint8_t broadcastAddress[] = {0xEC, 0xE3, 0x34, 0x1A, 0x7F, 0x38};
 
-bool currentState = false;
-bool receivedState = false;
-unsigned long lastSendTime = 0;
-const unsigned long sendInterval = 2000; // Send every 2 seconds
-
 typedef struct struct_message {
-  bool state;
+  char text[200];
 } struct_message;
 
-struct_message stateIn;
-struct_message stateOut;
+struct_message incomingMessage;
+struct_message outgoingMessage;
 
 esp_now_peer_info_t peerInfo;
 
 void OnDataSent(const wifi_tx_info_t *info, esp_now_send_status_t status) {
-  Serial.print("\r\n[RYAN] Last Packet Send Status: ");
-  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+  if (status != ESP_NOW_SEND_SUCCESS) {
+    Serial.println("[RYAN] Delivery Failed!");
+  }
 }
 
 void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, int len) {
-  memcpy(&stateIn, incomingData, sizeof(stateIn));
-  Serial.print("[RYAN] Bytes received: ");
-  Serial.println(len);
-  receivedState = stateIn.state;
-  Serial.print("[RYAN] Received state: ");
-  Serial.println(receivedState ? "TRUE" : "FALSE");
+  memcpy(&incomingMessage, incomingData, sizeof(incomingMessage));
+  Serial.print("[ERIC → RYAN]: ");
+  Serial.println(incomingMessage.text);
 }
 
 void setup() {
   Serial.begin(115200);
   delay(1000);
 
-  Serial.println("\n[RYAN] ESP-NOW Serial Test - Starting...");
+  Serial.println("\n[RYAN] ESP-NOW Interactive Messenger");
 
   WiFi.mode(WIFI_STA);
 
@@ -47,8 +40,6 @@ void setup() {
     Serial.println("[RYAN] Error initializing ESP-NOW");
     return;
   }
-
-  Serial.println("[RYAN] ESP-NOW initialized successfully");
 
   esp_now_register_send_cb(OnDataSent);
 
@@ -61,30 +52,30 @@ void setup() {
     return;
   }
 
-  Serial.println("[RYAN] Peer added successfully");
-
   esp_now_register_recv_cb(OnDataRecv);
 
-  Serial.println("[RYAN] Ready to send/receive data\n");
+  Serial.println("[RYAN] Ready! Type a message and press Enter to send.\n");
 }
 
 void loop() {
-  unsigned long currentTime = millis();
+  // Check if there's data available from Serial Monitor
+  if (Serial.available() > 0) {
+    String inputString = Serial.readStringUntil('\n');
+    inputString.trim(); // Remove any whitespace
 
-  if (currentTime - lastSendTime >= sendInterval) {
-    lastSendTime = currentTime;
-    currentState = !currentState;
-    stateOut.state = currentState;
+    if (inputString.length() > 0) {
+      // Copy the message to the outgoing struct
+      inputString.toCharArray(outgoingMessage.text, sizeof(outgoingMessage.text));
 
-    Serial.print("[RYAN] Sending state: ");
-    Serial.println(currentState ? "TRUE" : "FALSE");
+      // Send the message
+      esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &outgoingMessage, sizeof(outgoingMessage));
 
-    esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &stateOut, sizeof(stateOut));
-
-    if (result == ESP_OK) {
-      Serial.println("[RYAN] Sent with success");
-    } else {
-      Serial.println("[RYAN] Error sending the data");
+      if (result == ESP_OK) {
+        Serial.print("[RYAN → ERIC]: ");
+        Serial.println(outgoingMessage.text);
+      } else {
+        Serial.println("[RYAN] Error sending message");
+      }
     }
   }
 }
